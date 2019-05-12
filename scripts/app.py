@@ -1,12 +1,3 @@
-# USAGE
-# python detect_drowsiness.py --shape-predictor shape_predictor_68_face_landmarks.dat
-# python detect_drowsiness.py --shape-predictor shape_predictor_68_face_landmarks.dat --alarm alarm.wav
-
-# import the necessary packages
-from scipy.spatial import distance as dist
-from imutils.video import VideoStream
-from imutils import face_utils
-from threading import Thread
 import numpy as np
 # import playsound
 import argparse
@@ -14,65 +5,104 @@ import imutils
 import time
 import dlib
 import cv2
+import math
+from scipy.spatial import distance as dist
+from imutils.video import VideoStream
+from imutils import face_utils
+from threading import Thread
+from drowzee.drowsiness import Drowsiness
 
-def sound_alarm(path):
+
+
+def closed_eye_alarm():
 	# play an alarm sound
 	# playsound.playsound(path)
     print("Driver is Sleeping!!!!")
 
-def eye_aspect_ratio(eye):
-    # compute the euclidean distances between the two sets of
-    # vertical eye landmarks (x, y)-coordinates
-    A = dist.euclidean(eye[1], eye[5])
-    B = dist.euclidean(eye[2], eye[4])
+def landmark_to_imgpoints(landmark):
+    image_points = np.array([(359, 391),     # Nose tip 34
+                             (399, 561),     # Chin 9
+                             (337, 297),     # Left eye left corner 37
+                             (513, 301),     # Right eye right corne 46
+                             (345, 465),     # Left Mouth corner 49
+                             (453, 469)      # Right mouth corner 55
+                            ], dtype="double")
+    for (i, (x, y)) in enumerate(landmark):
+        if i == 33:
+            image_points[0] = np.array([x,y],dtype='double')
+        elif i == 8:
+            image_points[1] = np.array([x,y],dtype='double')
+        elif i == 45:
+            image_points[3] = np.array([x,y],dtype='double')
+        elif i == 48:
+            image_points[0] = np.array([x,y],dtype='double')
+        elif i == 54:
+            image_points[5] = np.array([x,y],dtype='double')
 
-    # compute the euclidean distance between the horizontal
-    # eye landmark (x, y)-coordinates
-    C = dist.euclidean(eye[0], eye[3])
+    return image_points
 
-    # compute the eye aspect ratio
-    ear = (A + B) / (2.0 * C)
+def face_orientation(frame, landmarks):
+    size = frame.shape #(height, width, color_channel)
 
-    # return the eye aspect ratio
-    return ear
- 
-# construct the argument parse and parse the arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-p", "--shape-predictor", required=True,
-	help="path to facial landmark predictor")
-ap.add_argument("-a", "--alarm", type=str, default="",
-	help="path alarm .WAV file")
-ap.add_argument("-w", "--webcam", type=int, default=0,
-	help="index of webcam on system")
-args = vars(ap.parse_args())
- 
-# define two constants, one for the eye aspect ratio to indicate
-# blink and then a second constant for the number of consecutive
-# frames the eye must be below the threshold for to set off the
-# alarm
-EYE_AR_THRESH = 0.3
-EYE_AR_CONSEC_FRAMES = 48
+    model_points = np.array([(0.0, 0.0, 0.0),             # Nose tip
+                             (0.0, -330.0, -65.0),        # Chin
+                             (-225.0, 170.0, -135.0),     # Left eye left corner
+                             (225.0, 170.0, -135.0),      # Right eye right corne
+                             (-150.0, -150.0, -125.0),    # Left Mouth corner
+                             (150.0, -150.0, -125.0)     # Right mouth corner
+                            ])
+    axis = np.float32([[500, 0, 0],
+                        [0, 500 ,0],
+                        [0, 0, 500]])
+    image_points = landmark_to_imgpoints(landmarks)
 
-# initialize the frame counter as well as a boolean used to
-# indicate if the alarm is going off
-COUNTER = 0
-ALARM_ON = False
+    # Camera internals
+    center = (size[1]/2, size[0]/2)
+    focal_length = center[0] / np.tan(60/2 * np.pi / 180)
+    camera_matrix = np.array([[focal_length, 0, center[0]],
+                              [0, focal_length, center[1]],
+                              [0, 0, 1]], dtype="float32")
 
-# initialize dlib's face detector (HOG-based) and then create
-# the facial landmark predictor
+    dist_coeffs = np.zeros((4, 1)) # Assuming no lens distortion
+    (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points,
+                                                                  image_points,
+                                                                  camera_matrix,
+                                                                  dist_coeffs,
+                                                                  flags=cv2.SOLVEPNP_ITERATIVE)
+    
+    if not success:
+        return None
+                          
+    imgpts, jac = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
+
+    proj_matrix = np.hstack((rvec_matrix, translation_vector))
+    euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)[6] 
+
+    pitch, yaw, roll = [math.radians(_) for _ in euler_angles]
+
+    pitch = math.degrees(math.asin(math.sin(pitch)))
+    roll = -math.degrees(math.asin(math.sin(roll)))
+    yaw = math.degrees(math.asin(math.sin(yaw)))
+
+    return imgpts, modelpts, (int(roll), int(pitch), int(yaw))
+
+# initialize dlib's face detector
 print("[INFO] loading facial landmark predictor...")
 detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor(args["shape_predictor"])
+predictor = dlib.shape_predictor("resources/models/facial/shape_predictor_68_face_landmarks.dat")
 
 # grab the indexes of the facial landmarks for the left and
 # right eye, respectively
-(lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
-(rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+
 
 # start the video stream thread
 print("[INFO] starting video stream thread...")
-vs = VideoStream(src=args["webcam"]).start()
+vs = VideoStream(src=0).start()
 time.sleep(1.0)
+
+drowzi = Drowsiness(eye_ar_TH=0.3, eye_ar_frames=48, alarm_func=closed_eye_alarm)
 
 # loop over frames from the video stream
 while True:
@@ -88,77 +118,25 @@ while True:
 
     # loop over the face detections
     for (i, rect) in enumerate(rects):
-        # determine the facial landmarks for the face region, then
-        # convert the facial landmark (x, y)-coordinates to a NumPy
-        # array
         shape = predictor(gray, rect)
         shape = face_utils.shape_to_np(shape)
 
-        # convert dlib's rectangle to a OpenCV-style bounding box
-	    # [i.e., (x, y, w, h)], then draw the face bounding box
+        # Print face rectangle
         (x, y, w, h) = face_utils.rect_to_bb(rect)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-        # show the face number
         cv2.putText(frame, "Face #{}".format(i + 1), (x - 10, y - 10), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
+        # Print landmarks
         for (x, y) in shape:
             cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
 
-        # extract the left and right eye coordinates, then use the
-        # coordinates to compute the eye aspect ratio for both eyes
-        leftEye = shape[lStart:lEnd]
-        rightEye = shape[rStart:rEnd]
-        leftEAR = eye_aspect_ratio(leftEye)
-        rightEAR = eye_aspect_ratio(rightEye)
+        # Calculate face rotation
+        _, _, rotate_degree = face_orientation(frame, shape)
+        print("rotate_degree", rotate_degree)
 
-        # average the eye aspect ratio together for both eyes
-        ear = (leftEAR + rightEAR) / 2.0
-
-        # compute the convex hull for the left and right eye, then
-        # visualize each of the eyes
-        leftEyeHull = cv2.convexHull(leftEye)
-        rightEyeHull = cv2.convexHull(rightEye)
-        cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
-        cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
-
-        # check to see if the eye aspect ratio is below the blink
-        # threshold, and if so, increment the blink frame counter
-        if ear < EYE_AR_THRESH:
-            COUNTER += 1
-
-            # if the eyes were closed for a sufficient number of
-            # then sound the alarm
-            if COUNTER >= EYE_AR_CONSEC_FRAMES:
-                # if the alarm is not on, turn it on
-                if not ALARM_ON:
-                    ALARM_ON = True
-
-                    # check to see if an alarm file was supplied,
-                    # and if so, start a thread to have the alarm
-                    # sound played in the background
-                    if args["alarm"] != "":
-                        t = Thread(target=sound_alarm,
-                                args=(args["alarm"],))
-                        t.deamon = True
-                        t.start()
-
-                # draw an alarm on the frame
-                cv2.putText(frame, "DROWSINESS ALERT!", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-        # otherwise, the eye aspect ratio is not below the blink
-        # threshold, so reset the counter and alarm
-        else:
-            COUNTER = 0
-            ALARM_ON = False
-
-        # draw the computed eye aspect ratio on the frame to help
-        # with debugging and setting the correct eye aspect ratio
-        # thresholds and frame counters
-        cv2.putText(frame, "EAR: {:.2f}".format(ear), (300, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        # Calculate drowsiness
+        frame = drowzi.calculate_drowsiness(frame, shape)
 
     # show the frame
     cv2.imshow("Frame", frame)
