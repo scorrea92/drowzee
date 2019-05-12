@@ -97,10 +97,6 @@ print("[INFO] loading facial landmark predictor...")
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor("resources/models/facial/shape_predictor_68_face_landmarks.dat")
 
-# grab the indexes of the facial landmarks for the left and
-# right eye, respectively
-
-
 # start the video stream thread
 print("[INFO] starting video stream thread...")
 vs = VideoStream(src=0).start()
@@ -110,9 +106,6 @@ drowzi = Drowsiness(eye_ar_TH=0.3, eye_ar_frames=48, alarm_func=closed_eye_alarm
 
 # loop over frames from the video stream
 while True:
-    # grab the frame from the threaded video file stream, resize
-    # it, and convert it to grayscale
-    # channels)
     frame = vs.read()
     frame = imutils.resize(frame, width=900)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -137,7 +130,11 @@ while True:
 
         # Calculate face rotation
         _, _, rotate_degree = face_orientation(frame, shape)
-        print("rotate_degree", rotate_degree)
+        cv2.putText(frame,
+                    "{}".format(rotate_degree),
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 0, 255), 2)
 
         # Calculate drowsiness
         frame = drowzi.calculate_drowsiness(frame, shape)
