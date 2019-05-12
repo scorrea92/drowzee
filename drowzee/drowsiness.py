@@ -1,4 +1,10 @@
-""""""
+# -*- coding: utf-8 -*-
+"""Class for drowsiness detection
+
+@license Copyright Sebastian Correa Echeverri
+
+@author  scorrea
+"""
 from threading import Thread
 import cv2
 from imutils import face_utils
@@ -8,9 +14,7 @@ from scipy.spatial import distance as dist
 (ERSTART, EREND) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
 
 class Drowsiness():
-    """
-    Class for detect drowsiness by eye closure
-    """
+    """Class for detect drowsiness by eye closure"""
 
     def __init__(self, eye_ar_TH=0.3, eye_ar_frames=48, alarm_func=None):
         self.eye_ar_TH = eye_ar_TH
@@ -20,22 +24,42 @@ class Drowsiness():
         self.alarm_func = alarm_func
 
     def eye_aspect_ratio(self, eye):
-        # compute the euclidean distances between the two sets of
-        # vertical eye landmarks (x, y)-coordinates
+        """ Compute the euclidean distances between the two sets of
+        vertical eye landmarks (x, y)-coordinates.
+    
+        Parameters
+        ----------
+        eye: array[array[int]]
+            coordenates for both eyes landmark
+
+        Returns
+        -------
+        float with mean eye aspect ratio
+        """
+        # compute the euclidean distances between the two sets of eyes
         A = dist.euclidean(eye[1], eye[5])
         B = dist.euclidean(eye[2], eye[4])
-
         # compute the euclidean distance between the horizontal
-        # eye landmark (x, y)-coordinates
         C = dist.euclidean(eye[0], eye[3])
-
         # compute the eye aspect ratio
         ear = (A + B) / (2.0 * C)
 
-        # return the eye aspect ratio
         return ear
 
     def calculate_drowsiness(self, frame, landmarks):
+        """Calculate drowsinness using eye aspect ratio threshold
+
+        Parameters
+        ----------
+        frame: numpy array
+            image conainting a face
+        landmarks: array
+            landmarks coords of the image face
+
+        Returns
+        -------
+        numpy array frame with anotations
+        """
         left_eye = landmarks[ELSTART:ELEND]
         right_eye = landmarks[ERSTART:EREND]
         left_eye_ar = self.eye_aspect_ratio(left_eye)

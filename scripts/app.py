@@ -1,4 +1,9 @@
-"""
+# -*- coding: utf-8 -*-
+"""App for POC drowsiness detection on video
+
+@license Copyright Sebastian Correa Echeverri
+
+@author  scorrea
 """
 import time
 import math
