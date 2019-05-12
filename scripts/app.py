@@ -1,17 +1,16 @@
-import numpy as np
-# import playsound
-import argparse
-import imutils
+"""
+"""
 import time
+import math
 import dlib
 import cv2
-import math
-from scipy.spatial import distance as dist
+import numpy as np
+
+import imutils
 from imutils.video import VideoStream
 from imutils import face_utils
-from threading import Thread
-from drowzee.drowsiness import Drowsiness
 
+from drowzee.drowsiness import Drowsiness
 
 
 def closed_eye_alarm():
