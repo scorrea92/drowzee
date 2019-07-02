@@ -10,7 +10,7 @@ import math
 import dlib
 import cv2
 import numpy as np
-
+import logging
 import imutils
 from imutils.video import VideoStream
 from imutils import face_utils
@@ -22,6 +22,7 @@ def closed_eye_alarm():
 	# play an alarm sound
 	# playsound.playsound(path)
     print("Driver is Sleeping!!!!")
+
 
 def landmark_to_imgpoints(landmark):
     image_points = np.array([(359, 391),     # Nose tip 34
@@ -45,6 +46,7 @@ def landmark_to_imgpoints(landmark):
 
     return image_points
 
+
 def face_orientation(frame, landmarks):
     size = frame.shape #(height, width, color_channel)
 
@@ -56,8 +58,8 @@ def face_orientation(frame, landmarks):
                              (150.0, -150.0, -125.0)     # Right mouth corner
                             ])
     axis = np.float32([[500, 0, 0],
-                        [0, 500 ,0],
-                        [0, 0, 500]])
+                       [0, 500 ,0],
+                       [0, 0, 500]])
     image_points = landmark_to_imgpoints(landmarks)
 
     # Camera internals
@@ -73,12 +75,12 @@ def face_orientation(frame, landmarks):
                                                                   camera_matrix,
                                                                   dist_coeffs,
                                                                   flags=cv2.SOLVEPNP_ITERATIVE)
-    
+
     if not success:
         return None
-                          
-    imgpts, jac = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
-    modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+
+    imgpts, _ = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    modelpts, _ = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
     rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
 
     proj_matrix = np.hstack((rvec_matrix, translation_vector))
@@ -92,61 +94,62 @@ def face_orientation(frame, landmarks):
 
     return imgpts, modelpts, (int(roll), int(pitch), int(yaw))
 
-# initialize dlib's face detector
-print("[INFO] loading facial landmark predictor...")
-detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor("resources/models/facial/shape_predictor_68_face_landmarks.dat")
+if __name__ == "__main__":
+    # initialize dlib's face detector
+    print("[INFO] loading facial landmark predictor...")
+    DETECTOR = dlib.get_frontal_face_detector()
+    PREDICTOR = dlib.shape_predictor("models/facial/shape_predictor_68_face_landmarks.dat")
 
-# start the video stream thread
-print("[INFO] starting video stream thread...")
-vs = VideoStream(src=0).start()
-time.sleep(1.0)
+    # start the video stream thread
+    print("[INFO] starting video stream thread...")
+    vs = VideoStream(src=0).start()
+    time.sleep(1.0)
 
-drowzi = Drowsiness(eye_ar_TH=0.3, eye_ar_frames=48, alarm_func=closed_eye_alarm)
+    drowzi = Drowsiness(eye_ar_TH=0.2, eye_ar_frames=12, alarm_func=closed_eye_alarm)
 
-# loop over frames from the video stream
-while True:
-    frame = vs.read()
-    frame = imutils.resize(frame, width=900)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # loop over frames from the video stream
+    while True:
+        frame = vs.read()
+        frame = imutils.resize(frame, width=900)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # detect faces in the grayscale frame
-    rects = detector(gray, 0)
+        # detect faces in the grayscale frame
+        rects = DETECTOR(gray, 0)
 
-    # loop over the face detections
-    for (i, rect) in enumerate(rects):
-        shape = predictor(gray, rect)
-        shape = face_utils.shape_to_np(shape)
+        # loop over the face detections
+        for (i, rect) in enumerate(rects):
+            shape = PREDICTOR(gray, rect)
+            shape = face_utils.shape_to_np(shape)
 
-        # Print face rectangle
-        (x, y, w, h) = face_utils.rect_to_bb(rect)
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(frame, "Face #{}".format(i + 1), (x - 10, y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # Print face rectangle
+            (x, y, w, h) = face_utils.rect_to_bb(rect)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(frame, "Face #{}".format(i + 1), (x - 10, y - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        # Print landmarks
-        for (x, y) in shape:
-            cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
+            # Print landmarks
+            for (x, y) in shape:
+                cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
 
-        # Calculate face rotation
-        _, _, rotate_degree = face_orientation(frame, shape)
-        cv2.putText(frame,
-                    "{}".format(rotate_degree),
-                    (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 0, 255), 2)
+            # Calculate face rotation
+            _, _, rotate_degree = face_orientation(frame, shape)
+            cv2.putText(frame,
+                        "{}".format(rotate_degree),
+                        (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (0, 0, 255), 2)
 
-        # Calculate drowsiness
-        frame = drowzi.calculate_drowsiness(frame, shape)
+            # Calculate drowsiness
+            frame = drowzi.calculate_drowsiness(frame, shape)
 
-    # show the frame
-    cv2.imshow("Frame", frame)
-    key = cv2.waitKey(1) & 0xFF
+        # show the frame
+        cv2.imshow("Frame", frame)
+        key = cv2.waitKey(1) & 0xFF
 
-    # if the `q` key was pressed, break from the loop
-    if key == ord("q"):
-        break
+        # if the `q` key was pressed, break from the loop
+        if key == ord("q"):
+            break
 
-# do a bit of cleanup
-cv2.destroyAllWindows()
-vs.stop()
+    # do a bit of cleanup
+    cv2.destroyAllWindows()
+    vs.stop()
