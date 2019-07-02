@@ -7,21 +7,47 @@
 """
 import time
 import math
+import logging
+import argparse
 import dlib
 import cv2
 import numpy as np
-import logging
 import imutils
 from imutils.video import VideoStream
 from imutils import face_utils
-
 from drowzee.drowsiness import Drowsiness
 
 
+def parse_options(log):
+    """ Function to parse arguments.
+
+    Returns
+    -------
+    Arguments parsed.
+    """
+    parser = argparse.ArgumentParser(
+        description='Script for trainig ')
+
+    parser.add_argument('-th', '--threshold',
+                        dest='threshold',
+                        action='store',
+                        type=float,
+                        default=0.2,
+                        help='eye opened threshold')
+    parser.add_argument('-frame', '--frame',
+                        dest='frame',
+                        action='store',
+                        type=int,
+                        default=12,
+                        help='number of frames with close eye to pop alarm')
+    args = parser.parse_args()
+    for key, value in sorted(vars(args).items()):
+        log.info("{} = {}".format(key, value))
+    return args
+
 def closed_eye_alarm():
-	# play an alarm sound
-	# playsound.playsound(path)
-    print("Driver is Sleeping!!!!")
+    """Event when eye close"""
+    logger.info("Driver is Sleeping!!!!")
 
 
 def landmark_to_imgpoints(landmark):
@@ -34,15 +60,15 @@ def landmark_to_imgpoints(landmark):
                             ], dtype="double")
     for (i, (x, y)) in enumerate(landmark):
         if i == 33:
-            image_points[0] = np.array([x,y],dtype='double')
+            image_points[0] = np.array([x, y], dtype='double')
         elif i == 8:
-            image_points[1] = np.array([x,y],dtype='double')
+            image_points[1] = np.array([x, y], dtype='double')
         elif i == 45:
-            image_points[3] = np.array([x,y],dtype='double')
+            image_points[3] = np.array([x, y], dtype='double')
         elif i == 48:
-            image_points[0] = np.array([x,y],dtype='double')
+            image_points[0] = np.array([x, y], dtype='double')
         elif i == 54:
-            image_points[5] = np.array([x,y],dtype='double')
+            image_points[5] = np.array([x, y], dtype='double')
 
     return image_points
 
@@ -58,7 +84,7 @@ def face_orientation(frame, landmarks):
                              (150.0, -150.0, -125.0)     # Right mouth corner
                             ])
     axis = np.float32([[500, 0, 0],
-                       [0, 500 ,0],
+                       [0, 500, 0],
                        [0, 0, 500]])
     image_points = landmark_to_imgpoints(landmarks)
 
@@ -79,12 +105,20 @@ def face_orientation(frame, landmarks):
     if not success:
         return None
 
-    imgpts, _ = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
-    modelpts, _ = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    imgpts, _ = cv2.projectPoints(axis,
+                                  rotation_vector,
+                                  translation_vector,
+                                  camera_matrix,
+                                  dist_coeffs)
+    modelpts, _ = cv2.projectPoints(model_points,
+                                    rotation_vector,
+                                    translation_vector,
+                                    camera_matrix,
+                                    dist_coeffs)
     rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
 
     proj_matrix = np.hstack((rvec_matrix, translation_vector))
-    euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)[6] 
+    euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)[6]
 
     pitch, yaw, roll = [math.radians(_) for _ in euler_angles]
 
@@ -94,18 +128,21 @@ def face_orientation(frame, landmarks):
 
     return imgpts, modelpts, (int(roll), int(pitch), int(yaw))
 
-if __name__ == "__main__":
+
+def main(args, logger):
     # initialize dlib's face detector
-    print("[INFO] loading facial landmark predictor...")
+    logger.info("Loading facial landmark predictor...")
     DETECTOR = dlib.get_frontal_face_detector()
     PREDICTOR = dlib.shape_predictor("models/facial/shape_predictor_68_face_landmarks.dat")
 
     # start the video stream thread
-    print("[INFO] starting video stream thread...")
+    logger.info("Starting video stream thread...")
     vs = VideoStream(src=0).start()
     time.sleep(1.0)
 
-    drowzi = Drowsiness(eye_ar_TH=0.2, eye_ar_frames=12, alarm_func=closed_eye_alarm)
+    drowzi = Drowsiness(eye_ar_TH=args.threshold,
+                        eye_ar_frames=args.frame,
+                        alarm_func=closed_eye_alarm)
 
     # loop over frames from the video stream
     while True:
@@ -124,7 +161,7 @@ if __name__ == "__main__":
             # Print face rectangle
             (x, y, w, h) = face_utils.rect_to_bb(rect)
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame, "Face #{}".format(i + 1), (x - 10, y - 10), 
+            cv2.putText(frame, "Face #{}".format(i + 1), (x - 10, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
             # Print landmarks
@@ -153,3 +190,10 @@ if __name__ == "__main__":
     # do a bit of cleanup
     cv2.destroyAllWindows()
     vs.stop()
+
+if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+    logger.info('Start Drowsiness detector')
+    args = parse_options(logger)
+    main(args, logger)
